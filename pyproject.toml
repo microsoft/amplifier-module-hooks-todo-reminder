@@ -1,0 +1,17 @@
+[project]
+name = "amplifier-module-hooks-todo-reminder"
+version = "1.0.0"
+description = "Hook that injects todo list reminders into AI context"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.entry-points."amplifier.modules"]
+hooks-todo-reminder = "amplifier_module_hooks_todo_reminder:mount"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8.4.2"]
