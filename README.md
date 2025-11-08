@@ -31,13 +31,14 @@ hooks:
   - module: hooks-todo-reminder
     source: git+https://github.com/microsoft/amplifier-module-hooks-todo-reminder@main
     config:
-      inject_role: user      # Role for injection (default: "user")
-      priority: 10           # Hook priority (default: 10)
+      inject_role: user # Role for injection (default: "user")
+      priority: 10 # Hook priority (default: 10)
 ```
 
 ### Configuration Options
 
 - **inject_role** (default: "user")
+
   - Context injection role
   - Options: "user" | "system" | "assistant"
   - Recommended: "user" (tested to work correctly)
@@ -63,6 +64,7 @@ Remember: Complete all pending todos before finishing this turn.
 ```
 
 **Symbols:**
+
 - ✓ = completed
 - → = in_progress (shows activeForm instead of content)
 - ☐ = pending
@@ -120,6 +122,7 @@ AI: [Sees 4 steps remaining, continues to step 2]
 ### Ephemeral Injection
 
 Context injection is **not stored** in conversation history. It's injected fresh each turn, so:
+
 - ✅ No context pollution from old states
 - ✅ Only latest plan visible
 - ✅ Automatic cleanup (nothing to persist)
@@ -127,6 +130,7 @@ Context injection is **not stored** in conversation history. It's injected fresh
 ### Session-Scoped
 
 Todos live only during the current session:
+
 - Created when AI calls tool-todo
 - Injected by hook each turn
 - Cleared when session ends
@@ -146,12 +150,14 @@ tool-todo (storage)  +  hooks-todo-reminder (injection)  =  AI accountability
 ```
 
 **Without reminder hook:**
+
 - AI calls tool-todo ✓
 - Tool stores todos ✓
 - AI must manually check status ✗
 - Risk: AI forgets to check, loses focus ✗
 
 **With reminder hook:**
+
 - AI calls tool-todo ✓
 - Tool stores todos ✓
 - Hook auto-injects reminders ✓
@@ -212,13 +218,33 @@ python test_todo_multi_turn.py
 ```
 
 Tests confirm:
+
 - Hook triggers on prompt:submit
 - Injection contains formatted todo list
 - Context receives messages
 - Format matches spec (✓/→/☐)
 
-## See Also
+## Contributing
 
-- [amplifier-module-tool-todo](../amplifier-module-tool-todo/README.md) - Storage and CRUD
-- [Hook Context Injection Spec](../amplifier-core/docs/specs/HOOKS_CONTEXT_INJECTION.md) - Injection mechanism
-- [bd-35](../.beads/amplifier-dev.jsonl) - Original design investigation
+> [!NOTE]
+> This project is not currently accepting external contributions, but we're actively working toward opening this up. We value community input and look forward to collaborating in the future. For now, feel free to fork and experiment!
+
+Most contributions require you to agree to a
+Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
+the rights to use your contribution. For details, visit [Contributor License Agreements](https://cla.opensource.microsoft.com).
+
+When you submit a pull request, a CLA bot will automatically determine whether you need to provide
+a CLA and decorate the PR appropriately (e.g., status check, comment). Simply follow the instructions
+provided by the bot. You will only need to do this once across all repos using our CLA.
+
+This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
+For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
+contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+
+## Trademarks
+
+This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
+trademarks or logos is subject to and must follow
+[Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/legal/intellectualproperty/trademarks/usage/general).
+Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
+Any use of third-party trademarks or logos are subject to those third-party's policies.
