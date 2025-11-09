@@ -1,20 +1,22 @@
 # amplifier-module-hooks-todo-reminder
 
-Hook that injects todo list reminders into AI context before each turn.
+Hook that injects todo list reminders into AI context before each LLM request.
 
 ## Purpose
 
-Automatically injects current todo state into AI's context at the start of each turn, providing ephemeral reminders that keep AI focused on completing all planned steps.
+Automatically injects current todo state into AI's context before each LLM request (step), providing ephemeral reminders that keep AI focused on completing all planned steps through complex multi-step turns.
 
 Works with `amplifier-module-tool-todo` to create an AI accountability loop.
 
 ## How It Works
 
-1. **Hook triggers** on `prompt:submit` event (start of each turn)
+1. **Hook triggers** on `provider:request` event (before each LLM call)
 2. **Checks** for `coordinator.todo_state` (populated by tool-todo)
 3. **Formats** todos like TodoWrite display (✓/→/☐ symbols)
 4. **Injects** as ephemeral context (not stored in history)
-5. **AI sees** reminder before generating response
+5. **AI sees** reminder before each decision point
+
+**Key insight:** During complex multi-step work, the orchestrator makes multiple LLM calls within a single turn (after each tool execution). This hook ensures the AI sees the current todo status before EVERY LLM call, maintaining continuous awareness throughout the turn.
 
 ## Installation
 
@@ -69,59 +71,79 @@ Remember: Complete all pending todos before finishing this turn.
 - → = in_progress (shows activeForm instead of content)
 - ☐ = pending
 
-## Example: Multi-Turn Accountability
+## Example: Multi-Step Accountability Within Single Turn
 
 ### Turn 1: AI creates plan
 
 ```
-User: "Implement feature X"
-AI: [Creates 5-step plan using tool-todo]
-  1. Research requirements (pending)
-  2. Design solution (pending)
-  3. Implement code (pending)
-  4. Write tests (pending)
-  5. Document changes (pending)
+User: "Implement feature X with tests"
+AI: [Creates 3-step plan using tool-todo]
+  1. Implement code (pending)
+  2. Write tests (pending)
+  3. Verify tests pass (pending)
 ```
 
-### Turn 2: AI starts work, sees reminder
+### Turn 2: AI executes all steps, maintaining awareness
 
 ```
-[prompt:submit fires]
-Hook injects:
-  <current_plan>
-  ☐ Research requirements
-  ☐ Design solution
-  ☐ Implement code
-  ☐ Write tests
-  ☐ Document changes
-  Remember: Complete all pending todos before finishing this turn.
-  </current_plan>
+[User submits prompt: "Do it"]
 
-AI: [Sees reminder, works on step 1, marks it completed]
+Step 1 (LLM call before first action):
+  [provider:request fires]
+  Hook injects:
+    <current_plan>
+    ☐ Implement code
+    ☐ Write tests
+    ☐ Verify tests pass
+    </current_plan>
+
+  AI: [Sees full plan, decides to implement code first]
+  → Calls Write tool, marks "Implement code" as in_progress
+
+Step 2 (LLM call after tool execution):
+  [provider:request fires again]
+  Hook injects:
+    <current_plan>
+    ✓ Implement code
+    ☐ Write tests
+    ☐ Verify tests pass
+    </current_plan>
+
+  AI: [Sees updated plan, knows what's next]
+  → Calls Write tool for tests, marks "Write tests" as in_progress
+
+Step 3 (LLM call after second tool):
+  [provider:request fires again]
+  Hook injects:
+    <current_plan>
+    ✓ Implement code
+    ✓ Write tests
+    ☐ Verify tests pass
+    </current_plan>
+
+  AI: [Sees progress, one task remaining]
+  → Calls Bash tool to run tests, marks "Verify" as in_progress
+
+Step 4 (LLM call after third tool):
+  [provider:request fires again]
+  Hook injects:
+    <current_plan>
+    ✓ Implement code
+    ✓ Write tests
+    ✓ Verify tests pass
+    </current_plan>
+
+  AI: [Sees all complete, provides summary]
+  → Final response to user
 ```
 
-### Turn 3: AI sees progress
-
-```
-[prompt:submit fires]
-Hook injects:
-  <current_plan>
-  ✓ Research requirements
-  ☐ Design solution
-  ☐ Implement code
-  ☐ Write tests
-  ☐ Document changes
-  Remember: Complete all pending todos before finishing this turn.
-  </current_plan>
-
-AI: [Sees 4 steps remaining, continues to step 2]
-```
+**Notice:** Single turn, but hook fires 4 times (before each LLM call). AI never loses track of the plan.
 
 ## Key Features
 
 ### Ephemeral Injection
 
-Context injection is **not stored** in conversation history. It's injected fresh each turn, so:
+Context injection is **not stored** in conversation history. It's injected fresh before each LLM request, so:
 
 - ✅ No context pollution from old states
 - ✅ Only latest plan visible
@@ -132,7 +154,7 @@ Context injection is **not stored** in conversation history. It's injected fresh
 Todos live only during the current session:
 
 - Created when AI calls tool-todo
-- Injected by hook each turn
+- Injected by hook before each LLM call
 - Cleared when session ends
 
 ### Graceful Degradation
@@ -154,15 +176,15 @@ tool-todo (storage)  +  hooks-todo-reminder (injection)  =  AI accountability
 - AI calls tool-todo ✓
 - Tool stores todos ✓
 - AI must manually check status ✗
-- Risk: AI forgets to check, loses focus ✗
+- Risk: AI forgets to check during multi-step execution ✗
 
 **With reminder hook:**
 
 - AI calls tool-todo ✓
 - Tool stores todos ✓
-- Hook auto-injects reminders ✓
-- AI sees status every turn ✓
-- AI stays focused ✓
+- Hook auto-injects before every LLM call ✓
+- AI sees status at every decision point ✓
+- AI maintains awareness through complex turns ✓
 
 ## Philosophy Alignment
 
@@ -176,10 +198,10 @@ tool-todo (storage)  +  hooks-todo-reminder (injection)  =  AI accountability
 
 ### Hook Registration
 
-Registers on `prompt:submit` event (start of each turn):
+Registers on `provider:request` event (before each LLM call):
 
 ```python
-hooks.register("prompt:submit", self.on_prompt_submit, priority=10, name="hooks-todo-reminder")
+hooks.register("provider:request", self.on_provider_request, priority=10, name="hooks-todo-reminder")
 ```
 
 ### Injection Logic
@@ -213,15 +235,16 @@ Integration tests verify:
 # Basic integration
 python test_todo_integration.py
 
-# Multi-turn accountability
-python test_todo_multi_turn.py
+# Multi-step accountability
+python test_todo_multi_step.py
 ```
 
 Tests confirm:
 
-- Hook triggers on prompt:submit
+- Hook triggers on provider:request
 - Injection contains formatted todo list
-- Context receives messages
+- Multiple injections during single turn
+- Context receives messages at each step
 - Format matches spec (✓/→/☐)
 
 ## Contributing
