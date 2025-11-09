@@ -53,15 +53,15 @@ class TodoReminderHook:
         self.priority = config.get("priority", 10)
 
     def register(self, hooks):
-        """Register hook on PROMPT_SUBMIT event."""
-        # Inject at turn start (before each prompt processing)
-        hooks.register("prompt:submit", self.on_prompt_submit, priority=self.priority, name="hooks-todo-reminder")
+        """Register hook on PROVIDER_REQUEST event."""
+        # Inject before each LLM call (every step within a turn)
+        hooks.register("provider:request", self.on_provider_request, priority=self.priority, name="hooks-todo-reminder")
 
-    async def on_prompt_submit(self, event: str, data: dict[str, Any]) -> HookResult:
-        """Inject current todo state at start of each turn.
+    async def on_provider_request(self, event: str, data: dict[str, Any]) -> HookResult:
+        """Inject current todo state before each LLM request (step).
 
         Args:
-            event: Event name ("prompt:submit")
+            event: Event name ("provider:request")
             data: Event data
 
         Returns:
@@ -70,7 +70,7 @@ class TodoReminderHook:
         # Get todos from coordinator (if tool loaded and todos exist)
         todos = getattr(self.coordinator, "todo_state", None)
 
-        logger.info(f"hooks-todo-reminder: Checking for todos, found {len(todos) if todos else 0} items")
+        logger.info(f"hooks-todo-reminder: Before LLM call, checking todos - found {len(todos) if todos else 0} items")
 
         if not todos:
             return HookResult(action="continue")  # No todos yet
@@ -78,7 +78,7 @@ class TodoReminderHook:
         # Format like TodoWrite display
         formatted = self._format_todos(todos)
 
-        logger.info(f"hooks-todo-reminder: Injecting todo reminder with {len(todos)} items")
+        logger.info(f"hooks-todo-reminder: Injecting todo reminder before LLM call with {len(todos)} items")
 
         # Inject as ephemeral context (not stored in history)
         return HookResult(
@@ -89,7 +89,8 @@ class TodoReminderHook:
 Remember: Complete all pending todos before finishing this turn.
 </current_plan>""",
             context_injection_role=self.inject_role,
-            suppress_output=True,  # Don't show to user (ephemeral)
+            ephemeral=True,  # Temporary injection, not stored in context
+            suppress_output=True,  # Don't show to user
         )
 
     def _format_todos(self, todos: list[dict]) -> str:
