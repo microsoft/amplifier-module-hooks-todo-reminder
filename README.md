@@ -55,14 +55,14 @@ hooks:
 The hook injects a formatted reminder showing current plan state:
 
 ```xml
-<current_plan>
+<system-reminder>
 ✓ Completed task
 → In-progress task
 ☐ Pending task
 ☐ Another pending task
 
 Remember: Complete all pending todos before finishing this turn.
-</current_plan>
+</system-reminder>
 ```
 
 **Symbols:**
@@ -91,11 +91,11 @@ AI: [Creates 3-step plan using tool-todo]
 Step 1 (LLM call before first action):
   [provider:request fires]
   Hook injects:
-    <current_plan>
+    <system-reminder>
     ☐ Implement code
     ☐ Write tests
     ☐ Verify tests pass
-    </current_plan>
+    </system-reminder>
 
   AI: [Sees full plan, decides to implement code first]
   → Calls Write tool, marks "Implement code" as in_progress
@@ -103,11 +103,11 @@ Step 1 (LLM call before first action):
 Step 2 (LLM call after tool execution):
   [provider:request fires again]
   Hook injects:
-    <current_plan>
+    <system-reminder>
     ✓ Implement code
     ☐ Write tests
     ☐ Verify tests pass
-    </current_plan>
+    </system-reminder>
 
   AI: [Sees updated plan, knows what's next]
   → Calls Write tool for tests, marks "Write tests" as in_progress
@@ -115,11 +115,11 @@ Step 2 (LLM call after tool execution):
 Step 3 (LLM call after second tool):
   [provider:request fires again]
   Hook injects:
-    <current_plan>
+    <system-reminder>
     ✓ Implement code
     ✓ Write tests
     ☐ Verify tests pass
-    </current_plan>
+    </system-reminder>
 
   AI: [Sees progress, one task remaining]
   → Calls Bash tool to run tests, marks "Verify" as in_progress
@@ -127,11 +127,11 @@ Step 3 (LLM call after second tool):
 Step 4 (LLM call after third tool):
   [provider:request fires again]
   Hook injects:
-    <current_plan>
+    <system-reminder>
     ✓ Implement code
     ✓ Write tests
     ✓ Verify tests pass
-    </current_plan>
+    </system-reminder>
 
   AI: [Sees all complete, provides summary]
   → Final response to user
@@ -213,7 +213,7 @@ hooks.register("provider:request", self.on_provider_request, priority=10, name="
 ```python
 HookResult(
     action="inject_context",
-    context_injection="<current_plan>...</current_plan>",
+    context_injection="<system-reminder>...</system-reminder>",
     context_injection_role="user",
     suppress_output=True
 )

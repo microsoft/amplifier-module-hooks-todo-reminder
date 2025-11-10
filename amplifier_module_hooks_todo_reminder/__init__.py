@@ -83,11 +83,11 @@ class TodoReminderHook:
         # Inject as ephemeral context (not stored in history)
         return HookResult(
             action="inject_context",
-            context_injection=f"""<current_plan>
+            context_injection=f"""<system-reminder>
 {formatted}
 
 Remember: Complete all pending todos before finishing this turn.
-</current_plan>""",
+</system-reminder>""",
             context_injection_role=self.inject_role,
             ephemeral=True,  # Temporary injection, not stored in context
             suppress_output=True,  # Don't show to user
