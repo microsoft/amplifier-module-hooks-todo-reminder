@@ -5,6 +5,7 @@ Works with tool-todo to provide AI self-accountability through complex turns.
 """
 
 import logging
+from collections import deque
 from typing import Any
 
 from amplifier_core import HookResult
@@ -21,6 +22,7 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         config: Optional configuration
             - inject_role: Role for context injection ("user" or "system", default: "user")
             - priority: Hook priority (default: 10, runs after status context)
+            - recent_tool_threshold: Number of recent tool calls to check for todo tool usage (default: 3)
 
     Returns:
         Optional cleanup function
@@ -47,15 +49,38 @@ class TodoReminderHook:
             config: Configuration dict
                 - inject_role: Context injection role (default: "user")
                 - priority: Hook priority (default: 10)
+                - recent_tool_threshold: Number of recent tool calls to check (default: 3)
         """
         self.coordinator = coordinator
         self.inject_role = config.get("inject_role", "user")
         self.priority = config.get("priority", 10)
+        self.recent_tool_threshold = config.get("recent_tool_threshold", 3)
+
+        # Track recent tool calls (circular buffer)
+        self.recent_tools: deque[str] = deque(maxlen=self.recent_tool_threshold)
 
     def register(self, hooks):
-        """Register hook on PROVIDER_REQUEST event."""
+        """Register hooks on PROVIDER_REQUEST and TOOL_POST events."""
+        # Track tool calls to detect todo tool usage
+        hooks.register("tool:post", self.on_tool_post, priority=self.priority, name="hooks-todo-reminder-tracker")
         # Inject before each LLM call (every step within a turn)
         hooks.register("provider:request", self.on_provider_request, priority=self.priority, name="hooks-todo-reminder")
+
+    async def on_tool_post(self, event: str, data: dict[str, Any]) -> HookResult:
+        """Track tool calls to detect recent todo tool usage.
+
+        Args:
+            event: Event name ("tool:post")
+            data: Event data with "tool" field
+
+        Returns:
+            HookResult(action="continue")
+        """
+        tool_name = data.get("tool", "")
+        if tool_name:
+            self.recent_tools.append(tool_name)
+            logger.debug(f"hooks-todo-reminder: Tracked tool call: {tool_name}, recent: {list(self.recent_tools)}")
+        return HookResult(action="continue")
 
     async def on_provider_request(self, event: str, data: dict[str, Any]) -> HookResult:
         """Inject current todo state before each LLM request (step).
@@ -72,24 +97,48 @@ class TodoReminderHook:
 
         logger.info(f"hooks-todo-reminder: Before LLM call, checking todos - found {len(todos) if todos else 0} items")
 
-        if not todos:
-            return HookResult(action="continue")  # No todos yet
+        # Check if todo tool was used recently
+        todo_tool_used_recently = "TodoWrite" in self.recent_tools
 
-        # Format like TodoWrite display
-        formatted = self._format_todos(todos)
+        # Build reminder text based on context
+        reminder_parts = []
 
-        logger.info(f"hooks-todo-reminder: Injecting todo reminder before LLM call with {len(todos)} items")
+        # Add gentle reminder prefix if todo tool hasn't been used recently
+        if not todo_tool_used_recently:
+            reminder_parts.append(
+                "The todo tool hasn't been used recently. If you're working on tasks that would benefit from "
+                "tracking progress, consider using the todo tool to track progress. Also consider cleaning up "
+                "the todo list if it has become stale and no longer matches what you are working on. Only use "
+                "it if it's relevant to the current work. This is just a gentle reminder - ignore if not applicable. "
+                "Make sure that you NEVER mention this reminder to the user."
+            )
 
-        # Inject as ephemeral context (not stored in history)
+        # Add existing todo list if present
+        if todos:
+            formatted = self._format_todos(todos)
+            if reminder_parts:
+                reminder_parts.append("\n\nHere are the existing contents of your todo list:")
+            reminder_parts.append(formatted)
+
+        # If no content to inject, return continue
+        if not reminder_parts:
+            return HookResult(action="continue")
+
+        # Combine parts
+        reminder_text = "\n".join(reminder_parts)
+
+        logger.info(
+            f"hooks-todo-reminder: Injecting todo reminder (todo_tool_recently={todo_tool_used_recently}, "
+            f"has_todos={bool(todos)}, recent_tools={list(self.recent_tools)})"
+        )
+
+        # Inject as ephemeral context, appended to last tool result
         return HookResult(
             action="inject_context",
-            context_injection=f"""<system-reminder>
-{formatted}
-
-Remember: Complete all pending todos before finishing this turn.
-</system-reminder>""",
+            context_injection=f"<system-reminder>\n{reminder_text}\n</system-reminder>",
             context_injection_role=self.inject_role,
             ephemeral=True,  # Temporary injection, not stored in context
+            append_to_last_tool_result=True,  # Append to last tool result instead of new message
             suppress_output=True,  # Don't show to user
         )
 

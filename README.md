@@ -4,19 +4,22 @@ Hook that injects todo list reminders into AI context before each LLM request.
 
 ## Purpose
 
-Automatically injects current todo state into AI's context before each LLM request (step), providing ephemeral reminders that keep AI focused on completing all planned steps through complex multi-step turns.
+Automatically injects current todo state into AI's context before each LLM request (step), providing gentle, contextual reminders that help AI track progress without being overly prescriptive.
 
-Works with `amplifier-module-tool-todo` to create an AI accountability loop.
+Works with `amplifier-module-tool-todo` to create an AI accountability loop with adaptive guidance based on recent tool usage.
 
 ## How It Works
 
-1. **Hook triggers** on `provider:request` event (before each LLM call)
-2. **Checks** for `coordinator.todo_state` (populated by tool-todo)
-3. **Formats** todos like TodoWrite display (✓/→/☐ symbols)
-4. **Injects** as ephemeral context (not stored in history)
-5. **AI sees** reminder before each decision point
+1. **Tracks tool usage** via `tool:post` events to detect recent todo tool usage
+2. **Hook triggers** on `provider:request` event (before each LLM call)
+3. **Checks** for `coordinator.todo_state` (populated by tool-todo)
+4. **Generates adaptive reminder**:
+   - If todo tool not used recently (last 3 tools): Gentle reminder to consider using it
+   - If todos exist: Shows current todo list with ✓/→/☐ symbols
+5. **Appends to last tool result** (if applicable) or creates new message as fallback
+6. **AI sees** contextual reminder attached to tool output
 
-**Key insight:** During complex multi-step work, the orchestrator makes multiple LLM calls within a single turn (after each tool execution). This hook ensures the AI sees the current todo status before EVERY LLM call, maintaining continuous awareness throughout the turn.
+**Key insight:** By appending to the last tool result instead of creating a separate message, the reminder feels less intrusive and more contextual. The adaptive messaging prevents over-compliance while maintaining awareness.
 
 ## Installation
 
@@ -35,6 +38,7 @@ hooks:
     config:
       inject_role: user # Role for injection (default: "user")
       priority: 10 # Hook priority (default: 10)
+      recent_tool_threshold: 3 # Number of recent tools to check (default: 3)
 ```
 
 ### Configuration Options
@@ -46,22 +50,44 @@ hooks:
   - Recommended: "user" (tested to work correctly)
 
 - **priority** (default: 10)
+
   - Hook execution priority
   - Higher numbers run after lower numbers
   - Recommended: 10 (runs after status context at priority 0)
 
+- **recent_tool_threshold** (default: 3)
+  - Number of recent tool calls to check for todo tool usage
+  - If todo tool not found in last N calls, shows gentle reminder
+  - Lower value = more frequent reminders, higher value = less frequent
+
 ## Injection Format
 
-The hook injects a formatted reminder showing current plan state:
+The hook appends a contextual reminder to the last tool result (or creates a new message if last message isn't a tool result).
+
+**When todo tool hasn't been used recently:**
+
+```xml
+<system-reminder>
+The todo tool hasn't been used recently. If you're working on tasks that would benefit from
+tracking progress, consider using the todo tool to track progress. Also consider cleaning up
+the todo list if it has become stale and no longer matches what you are working on. Only use
+it if it's relevant to the current work. This is just a gentle reminder - ignore if not applicable.
+Make sure that you NEVER mention this reminder to the user.
+
+Here are the existing contents of your todo list:
+✓ Completed task
+→ In-progress task
+☐ Pending task
+</system-reminder>
+```
+
+**When todo tool was used recently:**
 
 ```xml
 <system-reminder>
 ✓ Completed task
 → In-progress task
 ☐ Pending task
-☐ Another pending task
-
-Remember: Complete all pending todos before finishing this turn.
 </system-reminder>
 ```
 
@@ -70,6 +96,8 @@ Remember: Complete all pending todos before finishing this turn.
 - ✓ = completed
 - → = in_progress (shows activeForm instead of content)
 - ☐ = pending
+
+**Placement:** Appended to the last tool result message for contextual awareness, falls back to new message if needed.
 
 ## Example: Multi-Step Accountability Within Single Turn
 
@@ -90,6 +118,8 @@ AI: [Creates 3-step plan using tool-todo]
 
 Step 1 (LLM call before first action):
   [provider:request fires]
+  [Last message: user prompt "Do it"]
+  Hook: No tool result to append to → Creates new message
   Hook injects:
     <system-reminder>
     ☐ Implement code
@@ -102,44 +132,81 @@ Step 1 (LLM call before first action):
 
 Step 2 (LLM call after tool execution):
   [provider:request fires again]
-  Hook injects:
+  [Last message: tool result from Write]
+  Hook: Appends to Write tool result
+  Tool result now includes:
+    ...original Write output...
+
     <system-reminder>
     ✓ Implement code
     ☐ Write tests
     ☐ Verify tests pass
     </system-reminder>
 
-  AI: [Sees updated plan, knows what's next]
+  AI: [Sees updated plan attached to what just happened, knows what's next]
   → Calls Write tool for tests, marks "Write tests" as in_progress
 
 Step 3 (LLM call after second tool):
   [provider:request fires again]
-  Hook injects:
+  [Last message: tool result from Write (tests)]
+  Hook: Appends to tool result
+  Tool result includes:
+    ...test file written...
+
     <system-reminder>
+    The todo tool hasn't been used recently. If you're working on tasks that would
+    benefit from tracking progress, consider using the todo tool to track progress.
+    [...]
+
+    Here are the existing contents of your todo list:
     ✓ Implement code
     ✓ Write tests
     ☐ Verify tests pass
     </system-reminder>
 
-  AI: [Sees progress, one task remaining]
+  AI: [Sees gentle reminder + progress, one task remaining]
   → Calls Bash tool to run tests, marks "Verify" as in_progress
 
 Step 4 (LLM call after third tool):
   [provider:request fires again]
-  Hook injects:
+  [Last message: tool result from Bash (test output)]
+  Hook: Appends to Bash tool result
+  Tool result includes:
+    ...test output: all passed...
+
     <system-reminder>
     ✓ Implement code
     ✓ Write tests
     ✓ Verify tests pass
     </system-reminder>
 
-  AI: [Sees all complete, provides summary]
+  AI: [Sees all complete contextually with test results, provides summary]
   → Final response to user
 ```
 
-**Notice:** Single turn, but hook fires 4 times (before each LLM call). AI never loses track of the plan.
+**Notice:**
+- Single turn, but hook fires 4 times (before each LLM call)
+- Reminder appended to tool results for contextual awareness
+- Gentle reminder appears when todo tool not used recently
+- AI never loses track of the plan, but isn't overly rigid about it
 
 ## Key Features
+
+### Adaptive Messaging
+
+The hook adapts its messaging based on recent tool usage:
+
+- **Todo tool used recently**: Shows only the current todo list (concise)
+- **Todo tool not used recently**: Adds gentle reminder suggesting todo tool usage (helpful but not pushy)
+- **No todos**: Returns continue (silent until todos exist)
+
+### Contextual Placement
+
+Reminders are appended to tool results for natural context flow:
+
+- ✅ Feels less intrusive than separate messages
+- ✅ Reminder appears right after the relevant action
+- ✅ Falls back to new message if last message isn't a tool result
 
 ### Ephemeral Injection
 
