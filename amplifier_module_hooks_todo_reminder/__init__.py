@@ -4,6 +4,9 @@ Injects current todo list state into agent context before each LLM request.
 Works with tool-todo to provide AI self-accountability through complex turns.
 """
 
+# Amplifier module metadata
+__amplifier_module_type__ = "hook"
+
 import logging
 from collections import deque
 from typing import Any
