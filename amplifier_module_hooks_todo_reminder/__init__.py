@@ -135,10 +135,13 @@ class TodoReminderHook:
             f"has_todos={bool(todos)}, recent_tools={list(self.recent_tools)})"
         )
 
+        # Add behavioral instruction (matching Claude Code pattern)
+        behavioral_note = "\n\nDO NOT mention this reminder to the user. They can see your task progress in the UI. Process this silently and continue your work."
+        
         # Inject as ephemeral context, appended to last tool result
         return HookResult(
             action="inject_context",
-            context_injection=f"<system-reminder>\n{reminder_text}\n</system-reminder>",
+            context_injection=f"<system-reminder source=\"hooks-todo-reminder\">\n{reminder_text}{behavioral_note}\n</system-reminder>",
             context_injection_role=self.inject_role,
             ephemeral=True,  # Temporary injection, not stored in context
             append_to_last_tool_result=True,  # Append to last tool result instead of new message
